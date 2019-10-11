@@ -3,8 +3,11 @@ from scipy.optimize import minimize
 import random, time
 import pandas as pd
 from datetime import datetime
-import postcodes_io_api
 
+
+# to enable rich representation of the features, but the effect was rather minor
+rbf_1d = lambda x, c, h: np.exp(-(x - c)**2 / h**2)
+rbf_1d_v = lambda x, y, c, h: np.exp(-np.dot(x - c, y - c) / h**2)
 
 def get_linreg_pred(X, w, b):
     pred = np.dot(X, w) + b
@@ -80,6 +83,7 @@ def params_wrap(param_ls):
     return param_v, unwrap
 
 def RMSE(pred, true):
+    '''evaluation metric'''
     pred = pred.reshape(-1, 1)
     k = (pred- true)**2
     E = np.sqrt(k.mean())
@@ -87,9 +91,13 @@ def RMSE(pred, true):
     return E
 
 def run(X_train, X_test, y_train, y_test):
+    '''compiles relevant functions to perform linear regression'''
     toc = time.time()
     print('training------')
     w, b = fit_lin_regression(X_train, y_train, 10)
+    print('w! ', w, "'s shape", w.shape)
+    print('b! ', b, "'s shape", b.shape)
+    print('use of rbf or not, same RMSE for both training and testing')
     pred = get_linreg_pred(X_train, w, b)
     mse_t = RMSE(pred, y_train)
 
@@ -101,18 +109,18 @@ def run(X_train, X_test, y_train, y_test):
     tic = time.time()
     print('time elapsed: ', round(tic-toc, 3))
 
-    toc = time.time()
-    print('train for gradopt---')
-    w, b= fit_linreg_gradopt(X_train, y_train, 10)
-    mse_t = RMSE(X_train, y_train, w, b)
-    mse_v = RMSE(X_test, y_test, w, b)
-    print('RMSE for train vs. test set' , mse_t, mse_v)
-    tic = time.time()
-    print('time passed: ', round(tic-toc, 3))
+    # toc = time.time()
+    # print('train for gradopt---')
+    # w, b= fit_linreg_gradopt(X_train, y_train, 10)
+    # mse_t = RMSE(X_train, y_train, w, b)
+    # mse_v = RMSE(X_test, y_test, w, b)
+    # print('RMSE for train vs. test set' , mse_t, mse_v)
+    # tic = time.time()
+    # print('time passed: ', round(tic-toc, 3))
 
 
 def prediction_(order_ls):
-
+    '''parse the given dataframe into right input'''
     fcond = order_ls['order_start_day'] >= 1
     scond = order_ls['order_start_day'] <= 21
     train_chunk = order_ls[fcond & scond]
@@ -121,10 +129,12 @@ def prediction_(order_ls):
     focond = order_ls['order_start_day'] <= 31
     test_chunk = order_ls[tcond & focond]
 
-    X_train = train_chunk[['x','y','z']]
+    X_train = train_chunk[['x','y','z','x2','y2','z2']]
+                           #'xy','yz','zx']]
     y_train = train_chunk[['hourly_price']]
     
-    X_test = test_chunk[['x','y','z']]
+    X_test = test_chunk[['x','y','z','x2','y2','z2']]
+    #               'xy','yz','zx']]
     y_test = test_chunk[['hourly_price']]
 
     X_train= X_train.to_numpy()
@@ -141,6 +151,8 @@ def prediction_(order_ls):
 
 
 def preprocess():
+    '''In this problem, we go thru feature enrichment process'''
+
     orders = "data/orders.csv"
     order_ls = pd.read_csv(orders, sep=',', encoding='utf-8')
     order_ls['book_req'] = order_ls['booking_day'].astype(str) + ' ' + order_ls['booking_time'].astype(str)
@@ -148,7 +160,7 @@ def preprocess():
     order_ls['order_end'] = order_ls['order_end_day'].astype(str) + ' ' + order_ls['order_end_time'].astype(str)
     order_ls = order_ls.drop(columns = ['booking_day','booking_time','order_start_time','order_end_day','order_end_time'])
 
-    # linear regression
+    # embedding 3D info
     # input: 'lat' ' lng'
     # x = cos(lat) * cos(lon)
     # y = cos(lat) * sin(lon),
@@ -156,10 +168,16 @@ def preprocess():
     # output: 'hourly_price'
 
     print(order_ls)
-
     order_ls['x'] = np.cos(order_ls['lat']) * np.cos(order_ls['lng'])
     order_ls['y'] = np.cos(order_ls['lat']) * np.sin(order_ls['lng'])
     order_ls['z'] = np.sin(order_ls['lat'])
+    order_ls[['x','y','z']] = order_ls[['x','y','z']].astype(float)
+    order_ls['x2'] = rbf_1d(order_ls['x'], c = 0, h = 1)
+    order_ls['y2'] = rbf_1d(order_ls['y'], c = 0, h = 1)
+    order_ls['z2'] = rbf_1d(order_ls['z'], c = 0, h = 1)
+    order_ls['xy'] = rbf_1d_v(order_ls['x'], order_ls['y'], c = 0, h = 1)
+    order_ls['yz'] = rbf_1d_v(order_ls['y'], order_ls['z'], c = 0, h = 1)
+    order_ls['zx'] = rbf_1d_v(order_ls['z'], order_ls['x'], c = 0, h = 1)
 
     return order_ls
 
